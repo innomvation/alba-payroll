@@ -1,0 +1,11 @@
+{
+  "name": "가포 알바 · 출퇴근",
+  "short_name": "가포 알바",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#FFF3E6",
+  "theme_color": "#FFE9D6",
+  "icons": [
+    { "src": "./icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
