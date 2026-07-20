@@ -7,6 +7,11 @@ import { createClient } from '@/lib/supabase/client'
 type WeeklyTotal = { week_start: string; total: number }
 
 const won = (n: number) => `${Math.round(n).toLocaleString('ko-KR')}원`
+// 만원 단위, 소수 첫째 자리까지 (예: 126000 → "12.6만", 90000 → "9만")
+const manWon = (n: number) => {
+  const man = Math.round((n / 10000) * 10) / 10
+  return `${man % 1 === 0 ? man : man.toFixed(1)}만`
+}
 
 // KST 기준 날짜 문자열 "YYYY-MM-DD"
 function toKstDateStr(d: Date) {
@@ -172,7 +177,7 @@ export default function CalendarPicker({
                       <p className={`text-[11px] ${inMonth ? 'text-gray-700' : 'text-gray-300'}`}>
                         {Number(dateStr.slice(8, 10))}
                       </p>
-                      {pay ? <p className="text-[9px] font-bold text-[#0052cc]">{Math.round(pay / 1000)}k</p> : null}
+                      {pay ? <p className="text-[9px] font-bold text-[#0052cc]">{manWon(pay)}</p> : null}
                     </div>
                   )
                 })}
