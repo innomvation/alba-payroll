@@ -133,19 +133,28 @@ export default async function DashboardPage({
 
   // 알바별 가장 최근 출퇴근 이벤트(ts 오름차순으로 채워서 마지막 값이 최신)
   const lastEventOf = new Map<string, ClockEvt>()
+  // 알바별 최근 이벤트 전체(ts 오름차순) — 중간에 퇴근이 빠진 경우(출근 다음이 또 출근) 감지용
+  const eventsByWorker = new Map<string, ClockEvt[]>()
   for (const e of (clockRows ?? []) as ClockEvt[]) {
     lastEventOf.set(e.worker_id, e)
+    if (!eventsByWorker.has(e.worker_id)) eventsByWorker.set(e.worker_id, [])
+    eventsByWorker.get(e.worker_id)!.push(e)
   }
   const now = new Date()
   const openAlerts = (workers ?? [])
     .filter((w) => w.active)
     .map((w) => {
-      const last = lastEventOf.get(w.id)
-      if (!last || last.type !== 'in') return null
-      if (now < closingDeadline(last.ts)) return null
-      return { name: w.name, clockIn: last.ts }
+      const events = eventsByWorker.get(w.id) ?? []
+      const last = events[events.length - 1]
+      // 지금 출근 상태로 마감시간이 지남 (기존 검사)
+      const isOpenLate = !!last && last.type === 'in' && now >= closingDeadline(last.ts)
+      // 과거 어느 지점에서 출근 다음이 또 출근이면, 그 뒤에 정상적으로 퇴근을 눌러 "최근 이벤트"만 보면
+      // 문제없어 보여도 중간에 퇴근 기록이 통째로 빠진 것 — worker/[id] 페이지의 missingOut 감지와 동일한 로직
+      const hasGap = events.some((e, i) => e.type === 'in' && events[i + 1]?.type === 'in')
+      if (!isOpenLate && !hasGap) return null
+      return { name: w.name }
     })
-    .filter((v): v is { name: string; clockIn: string } => v !== null)
+    .filter((v): v is { name: string } => v !== null)
 
   // 지금 출근 상태인 알바 전부(마감시간 지났는지와 무관) — 너무 오래 근무중이면(예: 퇴근 깜빡함) 한눈에 보이게
   const workingNow = (workers ?? [])
@@ -234,7 +243,7 @@ export default async function DashboardPage({
           <div className="flex items-center gap-3 rounded-lg bg-[#ffedd6] p-4">
             <span className="material-symbols-outlined text-[#8a5a00]">schedule</span>
             <p className="text-sm font-bold text-[#8a5a00]">
-              마감시간이 지났는데 아직 퇴근을 안 누른 알바가 있어요: {openAlerts.map((a) => a.name).join(', ')}
+              퇴근 기록을 확인해야 하는 알바가 있어요: {openAlerts.map((a) => a.name).join(', ')}
             </p>
           </div>
         )}
