@@ -845,18 +845,26 @@
         $("lateOutErr").textContent = "출근 시각보다 나중이어야 해요.";
         return;
       }
+      // 12시간 넘는 근무는 실수(예: 며칠 뒤 열어서 "지금"이 그대로 들어간 경우)일 가능성이 커서,
+      // 저장은 막지 않되 needs_correction으로 자동 플래그해 correctionCard로 다시 확인하게 함.
+      const hours = lastInTs ? (new Date(iso) - new Date(lastInTs)) / 3600000 : 0;
+      const flagged = hours > 12;
       $("lateOutBtn").disabled = true;
       $("lateOutBtn").textContent = "처리 중…";
       const { error } = await db
         .from("clock_events")
-        .insert({ worker_id: worker.id, type: "out", source: "manual", ts: iso });
+        .insert({ worker_id: worker.id, type: "out", source: "manual", ts: iso, needs_correction: flagged });
       $("lateOutBtn").disabled = false;
       $("lateOutBtn").textContent = "이 시각으로 퇴근 처리";
       if (error) {
         $("lateOutErr").textContent = "저장 실패: " + error.message;
         return;
       }
+      if (flagged) {
+        $("lateOutErr").textContent = "저장했어요. 12시간 넘는 근무라 시각을 다시 확인해 주세요.";
+      }
       await refreshHome();
+      await loadCorrections();
       await loadWeekRecords();
     }
 
