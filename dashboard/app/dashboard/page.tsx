@@ -147,6 +147,18 @@ export default async function DashboardPage({
     })
     .filter((v): v is { name: string; clockIn: string } => v !== null)
 
+  // 지금 출근 상태인 알바 전부(마감시간 지났는지와 무관) — 너무 오래 근무중이면(예: 퇴근 깜빡함) 한눈에 보이게
+  const workingNow = (workers ?? [])
+    .filter((w) => w.active)
+    .map((w) => {
+      const last = lastEventOf.get(w.id)
+      if (!last || last.type !== 'in') return null
+      const hours = (now.getTime() - new Date(last.ts).getTime()) / 3600000
+      return { name: w.name, clockIn: last.ts, hours }
+    })
+    .filter((v): v is { name: string; clockIn: string; hours: number } => v !== null)
+    .sort((a, b) => b.hours - a.hours)
+
   // 주 → 알바별 주간 합계(지급 체크용) 목록. weekly_settlement는 shifts가 있는 주마다 항상 행이 생기므로
   // 이걸로 주차 목록(allWeeks)을 결정하면 shifts 테이블 전체를 안 긁어도 됨.
   const settlementByWeek = new Map<string, Settlement[]>()
@@ -225,6 +237,25 @@ export default async function DashboardPage({
               마감시간이 지났는데 아직 퇴근을 안 누른 알바가 있어요: {openAlerts.map((a) => a.name).join(', ')}
             </p>
           </div>
+        )}
+
+        {workingNow.length > 0 && (
+          <section className="space-y-2 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+            <h2 className="text-sm font-bold text-gray-500">🟢 지금 근무중</h2>
+            {workingNow.map((w) => {
+              const { date, hour, minute } = kstParts(w.clockIn)
+              const timeLabel = minute === 0 ? `${hour}시` : `${hour}시${minute}분`
+              const tooLong = w.hours > 12
+              return (
+                <div key={w.name} className="flex items-center justify-between text-sm">
+                  <span className="font-bold">{w.name}</span>
+                  <span className={tooLong ? 'font-bold text-[#ba1a1a]' : 'text-gray-500'}>
+                    {dateLabel(date)} {timeLabel} 출근{tooLong ? ` · ${Math.floor(w.hours)}시간째!` : ''}
+                  </span>
+                </div>
+              )
+            })}
+          </section>
         )}
 
         {allWeeks.length === 0 && <p className="py-6 text-center text-gray-400">정산 데이터가 없습니다.</p>}
