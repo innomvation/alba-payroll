@@ -180,6 +180,17 @@ export default async function DashboardPage({
   const dates = Array.from(dateGroup.keys()).sort((a, b) => a.localeCompare(b))
   const weekSettlements = currentWeek ? settlementByWeek.get(currentWeek) ?? [] : []
 
+  // 지급 완료(payout_id 있음)된 건들의 합 — "얼마나 줬는지"라 미지급분은 제외
+  const currentMonth = currentWeek?.slice(0, 7) // "YYYY-MM" (주는 week_start=월요일이 속한 달로 귀속)
+  const weekPaidTotal = weekSettlements
+    .filter((r) => r.payout_id != null)
+    .reduce((sum, r) => sum + (round10(r.expected_pay) ?? 0), 0)
+  const monthPaidTotal = currentMonth
+    ? settlements
+        .filter((r) => r.week_start.slice(0, 7) === currentMonth && r.payout_id != null)
+        .reduce((sum, r) => sum + (round10(r.expected_pay) ?? 0), 0)
+    : 0
+
   return (
     <>
       <header className="fixed top-0 z-50 flex h-16 w-full items-center justify-center border-b border-gray-100 bg-white px-4">
@@ -229,6 +240,18 @@ export default async function DashboardPage({
                 <span className="material-symbols-outlined p-1 text-gray-300">chevron_right</span>
               )}
             </div>
+
+            {/* 지급 총액 요약 */}
+            <section className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+                <p className="text-xs font-bold text-gray-500">이번 주 지급액</p>
+                <p className="mt-1 text-xl font-black text-[#0052cc]">{won(weekPaidTotal)}</p>
+              </div>
+              <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+                <p className="text-xs font-bold text-gray-500">{Number(currentMonth!.split('-')[1])}월 지급액</p>
+                <p className="mt-1 text-xl font-black text-[#0052cc]">{won(monthPaidTotal)}</p>
+              </div>
+            </section>
 
             {/* 날짜별 근무 내역 (수기 메모 스타일) */}
             {dates.length > 0 && (
