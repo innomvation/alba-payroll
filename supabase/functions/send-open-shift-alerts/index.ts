@@ -6,11 +6,29 @@
 //      - 알바 본인: 마감시간 + 30분 (open_shift_worker_alerts)
 //      - 사장: 영업 끝난 날짜 오전 11시 (open_shift_owner_alerts)
 //   3) 각 대상의 push_subscriptions로 웹푸시 발송, 같은 근무는 대상별로 1회만
-//   4) 만료/무효 구독(410/404)은 정리, 처리한 근무는 open_shift_alert_log에 기록(target별)
+//   4) 사장 알림 시점(익일 11시)엔 그때까지도 퇴근을 안 눌렀다는 뜻이므로, 마감시간을 추정 퇴근
+//      시각으로 자동 기록(needs_correction=true)해 알바가 punch 앱에서 직접 실제 시각으로
+//      고치게 한다(기존 "수정요청" 기능을 사장이 수동으로 누르던 걸 자동화).
+//   5) 만료/무효 구독(410/404)은 정리, 처리한 근무는 open_shift_alert_log에 기록(target별)
 //
 // 배포: supabase functions deploy send-open-shift-alerts
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import webpush from "npm:web-push@3.6.7";
+
+// 출근일이 속한 날의 가게 마감 시각(다음날 새벽) — 월~금 02:00 KST, 토·일 03:00 KST
+// (dashboard/app/dashboard/page.tsx, punch/index.html의 closingDeadline과 동일 규칙)
+function closingDeadlineIso(clockInIso: string): string {
+  const kstDateStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(
+    new Date(clockInIso),
+  );
+  const d = new Date(kstDateStr + "T00:00:00Z");
+  const dow = d.getUTCDay(); // 0=일 ... 6=토 (KST 달력일 기준)
+  const closeHourKst = dow === 0 || dow === 6 ? 3 : 2;
+  const deadline = new Date(d);
+  deadline.setUTCDate(deadline.getUTCDate() + 1);
+  deadline.setUTCHours(closeHourKst - 9, 0, 0, 0); // KST → UTC
+  return deadline.toISOString();
+}
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -72,10 +90,20 @@ Deno.serve(async (req) => {
 
     const { data: ownerAlerts, error: ownerErr } = await admin.rpc("open_shift_owner_alerts");
     if (ownerErr) throw ownerErr;
+    let corrected = 0;
     for (const a of ownerAlerts ?? []) {
       if (a.owner_id) {
         sent += await sendTo(a.owner_id, "미퇴근 알림", `${a.worker_name} 님이 아직 퇴근을 안 눌렀어요.`);
       }
+      // 익일 11시까지도 미퇴근 → 마감시간을 추정 퇴근시각으로 자동 기록, 알바 본인이 실제 시각으로 고치게 함
+      const { error: insertErr } = await admin.from("clock_events").insert({
+        worker_id: a.worker_id,
+        type: "out",
+        source: "manual",
+        ts: closingDeadlineIso(a.clock_in),
+        needs_correction: true,
+      });
+      if (!insertErr) corrected++;
       await admin
         .from("open_shift_alert_log")
         .insert({ clock_in_event_id: a.clock_in_event_id, target: "owner" });
@@ -87,6 +115,7 @@ Deno.serve(async (req) => {
         workerAlerts: workerAlerts?.length ?? 0,
         ownerAlerts: ownerAlerts?.length ?? 0,
         sent,
+        corrected,
       }),
       { status: 200, headers: { ...cors, "Content-Type": "application/json" } },
     );
