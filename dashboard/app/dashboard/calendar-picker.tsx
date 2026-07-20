@@ -59,12 +59,6 @@ export default function CalendarPicker({
     return () => document.removeEventListener('click', onClick)
   }, [])
 
-  const weeklyTotalOf = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const w of weeklyPaidTotals) m.set(w.week_start, w.total)
-    return m
-  }, [weeklyPaidTotals])
-
   const [year, month] = viewMonth.split('-').map(Number)
   const monthStart = `${viewMonth}-01`
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
@@ -156,37 +150,40 @@ export default function CalendarPicker({
           </div>
 
           <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-gray-400">
-            {['일', '월', '화', '수', '목', '금', '토'].map((d) => (
+            {['월', '화', '수', '목', '금', '토', '일'].map((d) => (
               <div key={d}>{d}</div>
             ))}
           </div>
 
-          {weeks.map((row) => (
-            <div
-              key={row[0]}
-              className="mt-1 cursor-pointer rounded-lg py-1 hover:bg-gray-50"
-              onClick={() => goToWeek(row[0])}
-            >
-              <div className="grid grid-cols-7 gap-1">
-                {row.map((dateStr) => {
-                  const inMonth = dateStr.slice(0, 7) === viewMonth
-                  const pay = dailyExpected.get(dateStr)
-                  const isCurrentWeek = row[0] === currentWeek
-                  return (
-                    <div key={dateStr} className={`rounded p-1 text-center ${isCurrentWeek ? 'bg-[#e8ecfb]' : ''}`}>
-                      <p className={`text-[11px] ${inMonth ? 'text-gray-700' : 'text-gray-300'}`}>
-                        {Number(dateStr.slice(8, 10))}
-                      </p>
-                      {pay ? <p className="text-[9px] font-bold text-[#0052cc]">{manWon(pay)}</p> : null}
-                    </div>
-                  )
-                })}
+          {weeks.map((row) => {
+            // 주차 합계 = 그 주(월~일) 일별 예상급여 합. payout은 주 단위 레코드라 일별로 쪼갤 수 없어
+            // "지급액"이 아니라 "예상급여"로 통일(일별 칸과 같은 기준) — 아직 지급 전이어도 항상 의미 있는 숫자가 뜸.
+            const weekTotal = row.reduce((sum, d) => sum + (dailyExpected.get(d) ?? 0), 0)
+            return (
+              <div
+                key={row[0]}
+                className="mt-1 cursor-pointer rounded-lg py-1 hover:bg-gray-50"
+                onClick={() => goToWeek(row[0])}
+              >
+                <div className="grid grid-cols-7 gap-1">
+                  {row.map((dateStr) => {
+                    const inMonth = dateStr.slice(0, 7) === viewMonth
+                    const pay = dailyExpected.get(dateStr)
+                    const isCurrentWeek = row[0] === currentWeek
+                    return (
+                      <div key={dateStr} className={`rounded p-1 text-center ${isCurrentWeek ? 'bg-[#e8ecfb]' : ''}`}>
+                        <p className={`text-[11px] ${inMonth ? 'text-gray-700' : 'text-gray-300'}`}>
+                          {Number(dateStr.slice(8, 10))}
+                        </p>
+                        {pay ? <p className="text-[9px] font-bold text-[#0052cc]">{manWon(pay)}</p> : null}
+                      </div>
+                    )
+                  })}
+                </div>
+                <p className="mt-0.5 text-right text-[10px] font-bold text-gray-400">주 {won(weekTotal)}</p>
               </div>
-              <p className="mt-0.5 text-right text-[10px] font-bold text-gray-400">
-                주 {won(weeklyTotalOf.get(row[0]) ?? 0)}
-              </p>
-            </div>
-          ))}
+            )
+          })}
           {loading && <p className="mt-2 text-center text-[10px] text-gray-300">불러오는 중…</p>}
         </div>
       )}
