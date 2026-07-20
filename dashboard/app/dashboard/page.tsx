@@ -5,7 +5,7 @@ import PaidToggle from './paid-toggle'
 import CopyAccountButton from './copy-account'
 import PushSubscribe from './push-subscribe'
 import BottomNav from '../bottom-nav'
-import WeekPicker from './week-picker'
+import CalendarPicker from './calendar-picker'
 
 export const dynamic = 'force-dynamic'
 
@@ -158,6 +158,14 @@ export default async function DashboardPage({
   // 최신 주가 맨 앞(index 0)
   const allWeeks = Array.from(settlementByWeek.keys()).sort((a, b) => b.localeCompare(a))
 
+  // 캘린더에서 어느 주를 봐도(과거·미래 상관없이) 지급액을 보여줄 수 있게 전체 주차 합계를 미리 계산
+  const weeklyPaidTotals = allWeeks.map((w) => ({
+    week_start: w,
+    total: (settlementByWeek.get(w) ?? [])
+      .filter((r) => r.payout_id != null)
+      .reduce((sum, r) => sum + (round10(r.expected_pay) ?? 0), 0),
+  }))
+
   const requestedIndex = weekParam ? allWeeks.indexOf(weekParam) : 0
   const currentIndex = requestedIndex === -1 ? 0 : requestedIndex
   const currentWeek = allWeeks[currentIndex] as string | undefined
@@ -196,7 +204,7 @@ export default async function DashboardPage({
       <header className="fixed top-0 z-50 flex h-16 w-full items-center justify-center border-b border-gray-100 bg-white px-4">
         <h1 className="text-xl font-bold text-[#0052cc]">주급 정산</h1>
         <div className="absolute right-4 top-1/2 -translate-y-1/2">
-          <WeekPicker weeks={allWeeks} currentWeek={currentWeek} />
+          <CalendarPicker currentWeek={currentWeek} weeklyPaidTotals={weeklyPaidTotals} />
         </div>
       </header>
 
