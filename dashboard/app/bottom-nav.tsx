@@ -10,6 +10,7 @@ const TABS = [
     icon: 'storefront',
     isActive: (p: string) => p === '/manage' || (p.startsWith('/manage/') && !p.startsWith('/manage/workplace')),
   },
+  { href: '/schedule', label: '근무표', icon: 'calendar_view_week', isActive: (p: string) => p === '/schedule' },
   { href: '/dashboard', label: '정산', icon: 'payments', isActive: (p: string) => p === '/dashboard' },
   {
     href: '/manage/workplace',
