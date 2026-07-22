@@ -10,6 +10,8 @@
 //      시각으로 자동 기록(needs_correction=true)해 알바가 punch 앱에서 직접 실제 시각으로
 //      고치게 한다(기존 "수정요청" 기능을 사장이 수동으로 누르던 걸 자동화).
 //   5) 만료/무효 구독(410/404)은 정리, 처리한 근무는 open_shift_alert_log에 기록(target별)
+//   6) 근무표(worker_schedules)에 오늘 근무 예정인데 예정시각+15분이 지나도 출근(in)을
+//      아예 안 누른 알바는 no_checkin_owner_alerts()로 찾아서 사장에게 알림(하루 1회, no_checkin_alert_log로 중복 방지)
 //
 // 배포: supabase functions deploy send-open-shift-alerts
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -109,11 +111,25 @@ Deno.serve(async (req) => {
         .insert({ clock_in_event_id: a.clock_in_event_id, target: "owner" });
     }
 
+    const { data: noCheckinAlerts, error: noCheckinErr } = await admin.rpc("no_checkin_owner_alerts");
+    if (noCheckinErr) throw noCheckinErr;
+    for (const a of noCheckinAlerts ?? []) {
+      if (a.owner_id) {
+        const t = a.scheduled_start.slice(0, 5);
+        sent += await sendTo(a.owner_id, "미출근 알림", `${a.worker_name} 님이 아직 출근을 안 하셨어요. (예정 ${t})`);
+      }
+      await admin.from("no_checkin_alert_log").insert({
+        worker_id: a.worker_id,
+        alert_date: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date()),
+      });
+    }
+
     return new Response(
       JSON.stringify({
         ok: true,
         workerAlerts: workerAlerts?.length ?? 0,
         ownerAlerts: ownerAlerts?.length ?? 0,
+        noCheckin: noCheckinAlerts?.length ?? 0,
         sent,
         corrected,
       }),

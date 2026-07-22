@@ -6,6 +6,7 @@ import CopyAccountButton from './copy-account'
 import PushSubscribe from './push-subscribe'
 import BottomNav from '../bottom-nav'
 import CalendarPicker from './calendar-picker'
+import NoShowRow from './no-show-row'
 
 export const dynamic = 'force-dynamic'
 
@@ -111,18 +112,25 @@ export default async function DashboardPage({
       .order('clock_in', { ascending: true })
   }
 
+  const now = new Date()
+  // 오늘(KST) 요일 — 근무표 대비 "오늘 근무 예정인데 출근 안 한 사람" 판단용
+  const todayKst = kstParts(now.toISOString()).date
+  const todayWeekday = new Date(todayKst + 'T00:00:00Z').getUTCDay()
+
   // ◀▶로 이동할 땐 week가 URL에 이미 있으니, 다른 쿼리들과 병렬로 바로 shifts도 같이 조회(왕복 한 번 줄임).
   // 최초 진입(week 없음)만 settlement 조회 후 "가장 최근 주"를 알아내야 해서 순차로 감.
-  const [{ data: rows }, { data: workers }, { data: clockRows }, prefetchedShifts] = await Promise.all([
-    supabase.from('weekly_settlement').select('*').order('week_start', { ascending: false }),
-    supabase.from('workers').select('id, name, account_number, bank_name, active'),
-    supabase
-      .from('clock_events')
-      .select('worker_id, type, ts')
-      .gte('ts', recentCutoffIso)
-      .order('ts', { ascending: true }),
-    weekParam ? fetchShifts(weekParam) : Promise.resolve(null),
-  ])
+  const [{ data: rows }, { data: workers }, { data: clockRows }, { data: todaySchedules }, prefetchedShifts] =
+    await Promise.all([
+      supabase.from('weekly_settlement').select('*').order('week_start', { ascending: false }),
+      supabase.from('workers').select('id, name, account_number, bank_name, active'),
+      supabase
+        .from('clock_events')
+        .select('worker_id, type, ts')
+        .gte('ts', recentCutoffIso)
+        .order('ts', { ascending: true }),
+      supabase.from('worker_schedules').select('worker_id, start_time').eq('weekday', todayWeekday),
+      weekParam ? fetchShifts(weekParam) : Promise.resolve(null),
+    ])
 
   const nameOf = new Map((workers ?? []).map((w) => [w.id, w.name]))
   const acctOf = new Map(
@@ -140,7 +148,6 @@ export default async function DashboardPage({
     if (!eventsByWorker.has(e.worker_id)) eventsByWorker.set(e.worker_id, [])
     eventsByWorker.get(e.worker_id)!.push(e)
   }
-  const now = new Date()
   const openAlerts = (workers ?? [])
     .filter((w) => w.active)
     .map((w) => {
@@ -167,6 +174,25 @@ export default async function DashboardPage({
     })
     .filter((v): v is { name: string; clockIn: string; hours: number } => v !== null)
     .sort((a, b) => b.hours - a.hours)
+
+  const activeWorkerIds = new Set((workers ?? []).filter((w) => w.active).map((w) => w.id))
+  const activeWorkers = (workers ?? []).filter((w) => w.active).map((w) => ({ id: w.id, name: w.name }))
+
+  // 오늘 근무표엔 있는데 아직 출근(in) 기록이 없는 사람 — 예정시각+15분 지난 경우만
+  const noShowToday = ((todaySchedules ?? []) as { worker_id: string; start_time: string }[])
+    .filter((s) => activeWorkerIds.has(s.worker_id))
+    .map((s) => {
+      const [h, m] = s.start_time.split(':').map(Number)
+      const deadline = new Date(todayKst + 'T00:00:00Z')
+      deadline.setUTCHours(h - 9, m + 15, 0, 0) // KST → UTC, +15분 여유
+      if (now < deadline) return null
+      const hasInToday = (eventsByWorker.get(s.worker_id) ?? []).some(
+        (e) => e.type === 'in' && kstParts(e.ts).date === todayKst,
+      )
+      if (hasInToday) return null
+      return { worker_id: s.worker_id, name: nameOf.get(s.worker_id) ?? '?', defaultTime: s.start_time.slice(0, 5) }
+    })
+    .filter((v): v is { worker_id: string; name: string; defaultTime: string } => v !== null)
 
   // 주 → 알바별 주간 합계(지급 체크용) 목록. weekly_settlement는 shifts가 있는 주마다 항상 행이 생기므로
   // 이걸로 주차 목록(allWeeks)을 결정하면 shifts 테이블 전체를 안 긁어도 됨.
@@ -247,6 +273,10 @@ export default async function DashboardPage({
             </p>
           </div>
         )}
+
+        {noShowToday.map((n) => (
+          <NoShowRow key={n.worker_id} entry={n} workers={activeWorkers} />
+        ))}
 
         {workingNow.length > 0 && (
           <section className="space-y-2 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
