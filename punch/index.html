@@ -144,6 +144,11 @@
     .corrow:first-child { border-top: none; padding-top: 0; }
     .corrow input { margin-bottom: 0; padding: 10px; font-size: 17px; }
     .corrow button { padding: 10px; font-size: 16px; background: linear-gradient(160deg, #C9B8E8, #A78BDB); }
+    .fixreq-toggle { width: auto; display: inline; padding: 2px 8px; font-size: 13px; font-weight: 700;
+      background: #F3DFD3; color: #8A6D5C; border-radius: 10px; vertical-align: 2px; }
+    .fixreq-form { display: flex; flex-direction: column; gap: 8px; padding: 8px 0 4px; }
+    .fixreq-form input { margin-bottom: 0; padding: 10px; font-size: 16px; }
+    .fixreq-form button { padding: 10px; font-size: 15px; background: linear-gradient(160deg, #C9B8E8, #A78BDB); }
     /* 일회성 리뷰 팝업 */
     .review-overlay { position: fixed; inset: 0; background: rgba(72, 48, 34, 0.45); display: flex; align-items: center; justify-content: center; padding: 28px; z-index: 50; }
     .review-card { background: #fff; border-radius: 18px; padding: 26px 22px; max-width: 340px; width: 100%; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18); }
@@ -680,7 +685,7 @@
       // 조회 범위는 앞뒤로 하루씩 여유를 두고, 표시는 출근일 기준으로만 이 주에 속한 것만 남김
       const { data: evs } = await db
         .from("clock_events")
-        .select("type, ts")
+        .select("id, type, ts")
         .eq("worker_id", worker.id)
         .gte("ts", kstMidnightUtcIso(addDaysStr(monday, -1)))
         .lt("ts", kstMidnightUtcIso(addDaysStr(sunday, 2)))
@@ -696,15 +701,16 @@
         if (e.type !== "in") continue;
         const date = kstParts(e.ts).date;
         const next = events[i + 1];
-        let outTs = null, hours = null;
+        let outTs = null, outId = null, hours = null;
         if (next && next.type === "out") {
           hours = hoursFloor15(e.ts, next.ts);
           outTs = next.ts;
+          outId = next.id;
           i++;
         }
         if (date < monday || date > sunday) continue; // 페어링만 하고 이 주 표시엔 제외(전/다음 주 소속)
         if (!byDate.has(date)) byDate.set(date, []);
-        byDate.get(date).push({ in: e.ts, out: outTs, hours });
+        byDate.get(date).push({ in: e.ts, out: outTs, hours, inId: e.id, outId });
         if (hours != null) {
           weekTotal += hours;
           const rate = rateAt(date);
@@ -721,14 +727,34 @@
           .map((date) => {
             const rows = byDate
               .get(date)
-              .map(
-                (s) =>
-                  `<p class="evrow">${fmtHm(s.in)}~${s.out ? fmtHm(s.out) : "근무중"}${s.hours != null ? `  ·  ${fmtHours(s.hours)}시간` : ""}</p>`
-              )
+              .map((s) => {
+                const label = `${fmtHm(s.in)}~${s.out ? fmtHm(s.out) : "근무중"}${s.hours != null ? `  ·  ${fmtHours(s.hours)}시간` : ""}`;
+                if (!s.out) return `<p class="evrow">${label}</p>`;
+                return `
+                  <div class="fixreq-wrap" data-in-id="${s.inId}" data-out-id="${s.outId}"
+                       data-orig-in="${toLocalInputValue(s.in)}" data-orig-out="${toLocalInputValue(s.out)}"
+                       data-orig-in-iso="${s.in}" data-orig-out-iso="${s.out}">
+                    <p class="evrow">${label} <button type="button" class="fixreq-toggle">수정요청</button></p>
+                    <div class="fixreq-form hidden">
+                      <input type="datetime-local" class="fixreq-in" value="${toLocalInputValue(s.in)}" />
+                      <input type="datetime-local" class="fixreq-out" value="${toLocalInputValue(s.out)}" />
+                      <button type="button" class="fixreq-submit">요청 보내기</button>
+                      <p class="fixreq-msg err"></p>
+                    </div>
+                  </div>`;
+              })
               .join("");
             return `<p class="evrow" style="font-weight:700;margin-top:8px;">${dateLabel(date)}</p>${rows}`;
           })
           .join("");
+        box.querySelectorAll(".fixreq-toggle").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            btn.closest(".fixreq-wrap").querySelector(".fixreq-form").classList.toggle("hidden");
+          });
+        });
+        box.querySelectorAll(".fixreq-submit").forEach((btn) => {
+          btn.addEventListener("click", () => submitFixRequest(btn));
+        });
       }
       const weekPayRounded = Math.round(weekPay / 10) * 10; // 10원 단위 반올림(정산 로직과 동일)
       $("weekTotal").innerHTML = `이 주 합계: ${fmtHours(weekTotal)}시간<br>💰 예상 급여: ${weekPayRounded.toLocaleString("ko-KR")}원`;
@@ -739,6 +765,60 @@
       weekOffset += delta;
       if (weekOffset > 0) weekOffset = 0;
       loadWeekRecords();
+    }
+
+    // 근무 기록(출근/퇴근 시각)이 잘못 찍혔을 때 알바가 직접 새 시각을 제안 — 사장님이 승인해야 실제로 반영됨
+    async function submitFixRequest(btn) {
+      const wrap = btn.closest(".fixreq-wrap");
+      const form = wrap.querySelector(".fixreq-form");
+      const msg = form.querySelector(".fixreq-msg");
+      msg.textContent = "";
+
+      const newInVal = form.querySelector(".fixreq-in").value;
+      const newOutVal = form.querySelector(".fixreq-out").value;
+      if (!newInVal || !newOutVal) {
+        msg.textContent = "시각을 입력하세요.";
+        return;
+      }
+      if (newOutVal <= newInVal) {
+        msg.textContent = "퇴근이 출근보다 나중이어야 해요.";
+        return;
+      }
+
+      const rowsToInsert = [];
+      if (newInVal !== wrap.dataset.origIn) {
+        rowsToInsert.push({
+          clock_event_id: wrap.dataset.inId,
+          worker_id: worker.id,
+          original_ts: wrap.dataset.origInIso,
+          requested_ts: new Date(newInVal).toISOString(),
+        });
+      }
+      if (newOutVal !== wrap.dataset.origOut) {
+        rowsToInsert.push({
+          clock_event_id: wrap.dataset.outId,
+          worker_id: worker.id,
+          original_ts: wrap.dataset.origOutIso,
+          requested_ts: new Date(newOutVal).toISOString(),
+        });
+      }
+      if (rowsToInsert.length === 0) {
+        msg.textContent = "바뀐 내용이 없어요.";
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "보내는 중…";
+      const { error } = await db.from("correction_requests").insert(rowsToInsert);
+      if (error) {
+        btn.disabled = false;
+        btn.textContent = "요청 보내기";
+        msg.textContent = "요청 실패: " + error.message;
+        return;
+      }
+      btn.textContent = "요청 완료 · 사장님 승인 대기중";
+      msg.style.color = "#7A9B7A";
+      msg.textContent = "수정 요청을 보냈어요. 사장님이 승인하면 반영돼요.";
     }
 
     let lastInTs = null; // 미퇴근 상태일 때 마지막 출근 시각(수동 퇴근 입력 기본값용)

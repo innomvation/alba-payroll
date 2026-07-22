@@ -8,6 +8,7 @@ import BottomNav from '../bottom-nav'
 import CalendarPicker from './calendar-picker'
 import NoShowRow from './no-show-row'
 import LateOutRow from './late-out-row'
+import CorrectionRequestRow from './correction-request-row'
 
 export const dynamic = 'force-dynamic'
 
@@ -120,18 +121,29 @@ export default async function DashboardPage({
 
   // ◀▶로 이동할 땐 week가 URL에 이미 있으니, 다른 쿼리들과 병렬로 바로 shifts도 같이 조회(왕복 한 번 줄임).
   // 최초 진입(week 없음)만 settlement 조회 후 "가장 최근 주"를 알아내야 해서 순차로 감.
-  const [{ data: rows }, { data: workers }, { data: clockRows }, { data: todaySchedules }, prefetchedShifts] =
-    await Promise.all([
-      supabase.from('weekly_settlement').select('*').order('week_start', { ascending: false }),
-      supabase.from('workers').select('id, name, account_number, bank_name, active'),
-      supabase
-        .from('clock_events')
-        .select('worker_id, type, ts')
-        .gte('ts', recentCutoffIso)
-        .order('ts', { ascending: true }),
-      supabase.from('worker_schedules').select('worker_id, start_time').eq('weekday', todayWeekday),
-      weekParam ? fetchShifts(weekParam) : Promise.resolve(null),
-    ])
+  const [
+    { data: rows },
+    { data: workers },
+    { data: clockRows },
+    { data: todaySchedules },
+    { data: correctionRequests },
+    prefetchedShifts,
+  ] = await Promise.all([
+    supabase.from('weekly_settlement').select('*').order('week_start', { ascending: false }),
+    supabase.from('workers').select('id, name, account_number, bank_name, active'),
+    supabase
+      .from('clock_events')
+      .select('worker_id, type, ts')
+      .gte('ts', recentCutoffIso)
+      .order('ts', { ascending: true }),
+    supabase.from('worker_schedules').select('worker_id, start_time').eq('weekday', todayWeekday),
+    supabase
+      .from('correction_requests')
+      .select('id, clock_event_id, worker_id, original_ts, requested_ts, clock_events(type)')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true }),
+    weekParam ? fetchShifts(weekParam) : Promise.resolve(null),
+  ])
 
   const nameOf = new Map((workers ?? []).map((w) => [w.id, w.name]))
   const acctOf = new Map(
@@ -139,6 +151,25 @@ export default async function DashboardPage({
   )
   const settlements = (rows ?? []) as Settlement[]
   const unpaidCount = settlements.filter((r) => r.expected_pay != null && r.payout_id == null).length
+
+  // 알바가 보낸 근무기록 수정 요청(승인 전) — 이름/유형 붙여서 카드로 보여줄 것
+  const pendingCorrections = (
+    (correctionRequests ?? []) as unknown as {
+      id: string
+      clock_event_id: string
+      worker_id: string
+      original_ts: string
+      requested_ts: string
+      clock_events: { type: 'in' | 'out' } | null
+    }[]
+  ).map((r) => ({
+    id: r.id,
+    clockEventId: r.clock_event_id,
+    name: nameOf.get(r.worker_id) ?? '?',
+    type: r.clock_events?.type ?? 'in',
+    originalTs: r.original_ts,
+    requestedTs: r.requested_ts,
+  }))
 
   // 알바별 가장 최근 출퇴근 이벤트(ts 오름차순으로 채워서 마지막 값이 최신)
   const lastEventOf = new Map<string, ClockEvt>()
@@ -280,6 +311,10 @@ export default async function DashboardPage({
         )}
 
         <PushSubscribe />
+
+        {pendingCorrections.map((c) => (
+          <CorrectionRequestRow key={c.id} entry={c} />
+        ))}
 
         {openAlerts.length > 0 && (
           <div className="flex items-center gap-3 rounded-lg bg-[#ffedd6] p-4">
