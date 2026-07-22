@@ -20,7 +20,7 @@ export default function CopyTodayButton({ workers, schedules }: { workers: Worke
     const text = today
       .map((s) => {
         const [h, m] = s.start_time.split(':').map(Number)
-        return `${nameOf.get(s.worker_id) ?? '?'} ${m === 0 ? `${h}시` : `${h}시${m}분`}출근`
+        return `${nameOf.get(s.worker_id) ?? '?'} ${m === 0 ? `${h}시` : `${h}시${m}분`} 출근`
       })
       .join('\n')
     await navigator.clipboard.writeText(text)
