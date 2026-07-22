@@ -9,6 +9,7 @@ import CalendarPicker from './calendar-picker'
 import NoShowRow from './no-show-row'
 import LateOutRow from './late-out-row'
 import CorrectionRequestRow from './correction-request-row'
+import ShiftRequestRow from './shift-request-row'
 
 export const dynamic = 'force-dynamic'
 
@@ -127,6 +128,7 @@ export default async function DashboardPage({
     { data: clockRows },
     { data: todaySchedules },
     { data: correctionRequests },
+    { data: shiftRequests },
     prefetchedShifts,
   ] = await Promise.all([
     supabase.from('weekly_settlement').select('*').order('week_start', { ascending: false }),
@@ -140,6 +142,11 @@ export default async function DashboardPage({
     supabase
       .from('correction_requests')
       .select('id, clock_event_id, worker_id, original_ts, requested_ts, clock_events(type)')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('shift_requests')
+      .select('id, worker_id, requested_in, requested_out')
       .eq('status', 'pending')
       .order('created_at', { ascending: true }),
     weekParam ? fetchShifts(weekParam) : Promise.resolve(null),
@@ -169,6 +176,17 @@ export default async function DashboardPage({
     type: r.clock_events?.type ?? 'in',
     originalTs: r.original_ts,
     requestedTs: r.requested_ts,
+  }))
+
+  // 알바가 보낸 "근무 추가" 요청(승인 전) — 출근을 아예 안 눌러서 기존 이벤트가 없는 경우
+  const pendingShiftRequests = (
+    (shiftRequests ?? []) as { id: string; worker_id: string; requested_in: string; requested_out: string }[]
+  ).map((r) => ({
+    id: r.id,
+    worker_id: r.worker_id,
+    name: nameOf.get(r.worker_id) ?? '?',
+    requestedIn: r.requested_in,
+    requestedOut: r.requested_out,
   }))
 
   // 알바별 가장 최근 출퇴근 이벤트(ts 오름차순으로 채워서 마지막 값이 최신)
@@ -314,6 +332,10 @@ export default async function DashboardPage({
 
         {pendingCorrections.map((c) => (
           <CorrectionRequestRow key={c.id} entry={c} />
+        ))}
+
+        {pendingShiftRequests.map((s) => (
+          <ShiftRequestRow key={s.id} entry={s} />
         ))}
 
         {openAlerts.length > 0 && (
