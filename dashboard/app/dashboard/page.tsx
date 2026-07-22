@@ -7,6 +7,7 @@ import PushSubscribe from './push-subscribe'
 import BottomNav from '../bottom-nav'
 import CalendarPicker from './calendar-picker'
 import NoShowRow from './no-show-row'
+import LateOutRow from './late-out-row'
 
 export const dynamic = 'force-dynamic'
 
@@ -163,6 +164,21 @@ export default async function DashboardPage({
     })
     .filter((v): v is { name: string } => v !== null)
 
+  const nowHm = kstParts(now.toISOString())
+  const nowTimeStr = `${String(nowHm.hour).padStart(2, '0')}:${String(nowHm.minute).padStart(2, '0')}`
+
+  // 지금 출근 상태인데 마감시간이 지난 사람만 — 바로 "퇴근 처리" 버튼으로 처리 가능하게
+  // (hasGap은 과거 기록의 구멍이라 "지금" 시각을 기본값으로 주는 게 안 맞아서 여기 포함 안 함 — worker/[id]에서 수동 수정)
+  const missedCheckoutToday = (workers ?? [])
+    .filter((w) => w.active)
+    .map((w) => {
+      const events = eventsByWorker.get(w.id) ?? []
+      const last = events[events.length - 1]
+      if (!last || last.type !== 'in' || now < closingDeadline(last.ts)) return null
+      return { worker_id: w.id, name: w.name, defaultTime: nowTimeStr }
+    })
+    .filter((v): v is { worker_id: string; name: string; defaultTime: string } => v !== null)
+
   // 지금 출근 상태인 알바 전부(마감시간 지났는지와 무관) — 너무 오래 근무중이면(예: 퇴근 깜빡함) 한눈에 보이게
   const workingNow = (workers ?? [])
     .filter((w) => w.active)
@@ -273,6 +289,10 @@ export default async function DashboardPage({
             </p>
           </div>
         )}
+
+        {missedCheckoutToday.map((n) => (
+          <LateOutRow key={n.worker_id} entry={n} workers={activeWorkers} />
+        ))}
 
         {noShowToday.map((n) => (
           <NoShowRow key={n.worker_id} entry={n} workers={activeWorkers} />
