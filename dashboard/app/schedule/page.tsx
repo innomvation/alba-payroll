@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import BottomNav from '../bottom-nav'
 import ScheduleEditor from './schedule-editor'
 import CopyTodayButton from './copy-today'
+import RefreshScheduleButton from './refresh-button'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,6 +31,9 @@ export default async function SchedulePage() {
     <>
       <header className="fixed top-0 z-50 flex h-16 w-full items-center justify-center border-b border-gray-100 bg-white px-4">
         <h1 className="text-xl font-bold text-[#0052cc]">근무표</h1>
+        <div className="absolute left-4 top-1/2 -translate-y-1/2">
+          <RefreshScheduleButton />
+        </div>
         <div className="absolute right-4 top-1/2 -translate-y-1/2">
           <CopyTodayButton workers={(workers ?? []) as Worker[]} schedules={(schedules ?? []) as Schedule[]} />
         </div>
