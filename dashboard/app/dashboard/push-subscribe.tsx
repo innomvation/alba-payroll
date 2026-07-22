@@ -99,7 +99,7 @@ export default function PushSubscribe() {
         }
       >
         <span className="material-symbols-outlined text-sm">notifications</span>
-        {busy ? '처리 중…' : subscribed ? '미퇴근 알림 받는 중 (끄기)' : '미퇴근 알림 받기'}
+        {busy ? '처리 중…' : subscribed ? '출퇴근 알람 받는 중 (끄기)' : '출퇴근 알람 받기'}
       </button>
       {msg && <p className="mt-1.5 text-sm text-[#b00020]">{msg}</p>}
     </div>
