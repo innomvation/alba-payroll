@@ -1,6 +1,6 @@
 {
-  "name": "가포 알바 · 출퇴근",
-  "short_name": "가포 알바",
+  "name": "알바 출퇴 펀치",
+  "short_name": "출퇴 펀치",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#FFF3E6",
