@@ -1,5 +1,5 @@
 // 최소 서비스워커: 앱 셸 캐시(오프라인에서도 화면은 뜨게). 데이터는 항상 네트워크.
-const CACHE = "gapo-punch-v8";
+const CACHE = "gapo-punch-v9";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.png", "./paw-jelly.png"];
 
 self.addEventListener("install", (e) => {
